@@ -135,6 +135,8 @@ h1{
 .ptext b{color:var(--ink);font-weight:650}
 .track{height:9px;border-radius:999px;background:var(--line);margin-top:7px;overflow:hidden}
 .fill{height:100%;border-radius:999px;background:var(--accent);transition:width .4s ease}
+.spark{width:100%;height:44px;margin-top:10px;display:block}
+.spark-range{font-size:.75rem;color:var(--muted);margin-top:4px;font-variant-numeric:tabular-nums}
 .paws{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
 .pawstep{width:19px;height:19px;flex:none}
 .pawstep.done{fill:var(--paw-done)}
@@ -376,6 +378,27 @@ dialog h2{
   </form>
 </dialog>
 
+<dialog id="weightModal">
+  <h2 id="weightModalTitle">Registrar peso</h2>
+  <form id="weightForm">
+    <div class="frow">
+      <div class="field">
+        <label for="weightKg">Peso (kg)</label>
+        <input id="weightKg" required inputmode="decimal" placeholder="ex: 3,4" maxlength="6">
+      </div>
+      <div class="field">
+        <label for="weightDate">Dia</label>
+        <input id="weightDate" type="date" required>
+      </div>
+    </div>
+    <div class="hint">Um registro por dia; pesar de novo no mesmo dia substitui o valor.</div>
+    <div class="dlg-actions">
+      <button type="button" class="btn-ghost" data-close="weightModal">Cancelar</button>
+      <button type="submit" class="btn">Registrar</button>
+    </div>
+  </form>
+</dialog>
+
 <div id="toast" role="status"></div>
 
 <script>
@@ -391,7 +414,8 @@ var ZORO_PHOTO='data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAYEBQUFB
 var state=load();
 var openHistory={};
 var openCats={};
-var editingCat=null, editingMed=null, doseCtx=null, pendingPhoto=null;
+var openWeights={};
+var editingCat=null, editingMed=null, doseCtx=null, weightCtx=null, pendingPhoto=null;
 
 function seed(){
   return {cats:[
@@ -515,6 +539,63 @@ function render(){
   app.innerHTML=html;
 }
 
+function trackWeight(cat){
+  return cat.id==='luna' || (cat.name||'').toLowerCase().indexOf('luna')>-1;
+}
+function fmtKg(n){
+  return n.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+' kg';
+}
+function weightCard(cat){
+  var ws=(cat.weights||[]).slice().sort(function(a,b){return a.date.localeCompare(b.date);});
+  var last=ws.length?ws[ws.length-1]:null;
+  var chip;
+  if(last){
+    var deltaTxt='';
+    if(ws.length>1){
+      var d=Math.round((last.kg-ws[ws.length-2].kg)*1000);
+      deltaTxt='<span class="chip plain">'+(d===0?'estável':(d>0?'+':'-')+Math.abs(d)+' g desde a pesagem anterior')+'</span>';
+    }
+    chip='<span class="chip ok">'+fmtKg(last.kg)+' · '+fmtDay(last.date)+'</span>'+deltaTxt;
+  }else{
+    chip='<span class="chip warn">Nenhum peso registrado ainda</span>';
+  }
+  var spark='';
+  if(ws.length>=2){
+    var pts=ws.slice(-14);
+    var kgs=pts.map(function(w){return w.kg;});
+    var min=Math.min.apply(null,kgs), max=Math.max.apply(null,kgs);
+    var span=(max-min)||1;
+    var poly=pts.map(function(w,i){
+      var x=i*(100/(pts.length-1));
+      var y=26-((w.kg-min)/span)*22;
+      return x.toFixed(1)+','+y.toFixed(1);
+    }).join(' ');
+    spark='<svg class="spark" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true">'+
+      '<polyline points="'+poly+'" fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round"/>'+
+      '</svg>'+
+      '<div class="spark-range">de '+fmtKg(min)+' a '+fmtKg(max)+' nas últimas '+pts.length+' pesagens</div>';
+  }
+  var hist='';
+  if(openWeights[cat.id]){
+    var rows=ws.slice().reverse().map(function(w){
+      var pos=ws.indexOf(w), dtx='';
+      if(pos>0){
+        var dd=Math.round((w.kg-ws[pos-1].kg)*1000);
+        dtx='<span class="note">'+(dd===0?'estável':(dd>0?'+':'-')+Math.abs(dd)+' g')+'</span>';
+      }
+      return '<div class="hrow"><span class="when">'+fmtDay(w.date)+'</span><span class="amt">'+fmtKg(w.kg)+'</span>'+dtx+
+        '<span class="spacer"></span><button class="del" data-action="del-weight" data-cat="'+cat.id+'" data-weight="'+w.id+'" aria-label="Excluir peso">&times;</button></div>';
+    }).join('');
+    hist='<div class="history">'+(rows||'<div class="hempty">Nenhum peso registrado ainda.</div>')+'</div>';
+  }
+  return '<div class="med">'+
+    '<div class="med-head"><h3 class="med-name">Peso diário</h3><span class="med-dose">de preferência no mesmo horário</span></div>'+
+    '<div class="chiprow">'+chip+'</div>'+spark+
+    '<div class="med-actions">'+
+      '<button class="btn" data-action="log-weight" data-cat="'+cat.id+'">Registrar peso</button>'+
+      '<button class="btn-ghost" data-action="toggle-weights" data-cat="'+cat.id+'">'+(openWeights[cat.id]?'Fechar':'Histórico')+'</button>'+
+    '</div>'+hist+'</div>';
+}
 function catStatusChip(cat){
   if(!cat.meds.length) return '';
   var t=todayStr(), pend=0, given=0, hasPerDay=false;
@@ -539,6 +620,7 @@ function catCard(cat){
       ? cat.meds.map(function(m){ return medCard(cat,m); }).join('')
       : '<div class="hempty" style="margin-top:10px">Nenhum remedinho cadastrado ainda.</div>';
     body=medsHtml+
+      (trackWeight(cat)?weightCard(cat):'')+
       '<div style="margin-top:14px"><button class="btn-ghost" data-action="add-med" data-cat="'+cat.id+'">Adicionar remedinho</button></div>';
   }
   return '<section class="cat'+(cat.theme?' theme-'+cat.theme:'')+'">'+
@@ -708,6 +790,15 @@ function quickLog(cat,med){
     save(); render(); toast('Registro desfeito');
   });
 }
+function openWeightModal(cat){
+  weightCtx=cat;
+  document.getElementById('weightModalTitle').textContent='Peso de '+cat.name;
+  var ws=(cat.weights||[]).slice().sort(function(a,b){return a.date.localeCompare(b.date);});
+  var last=ws.length?ws[ws.length-1]:null;
+  document.getElementById('weightKg').value = last?String(last.kg).replace('.',','):'';
+  document.getElementById('weightDate').value = todayStr();
+  document.getElementById('weightModal').showModal();
+}
 function openDoseModal(cat,med){
   doseCtx={cat:cat,med:med};
   document.getElementById('doseModalTitle').textContent = med.name+' · '+cat.name;
@@ -748,6 +839,18 @@ document.addEventListener('click',function(e){
   else if(action==='edit-med'&&med) openMedModal(cat,med);
   else if(action==='log-dose'&&med) quickLog(cat,med);
   else if(action==='add-log'&&med) openDoseModal(cat,med);
+  else if(action==='log-weight'&&cat) openWeightModal(cat);
+  else if(action==='toggle-weights'&&cat){
+    openWeights[cat.id]=!openWeights[cat.id];
+    render();
+  }
+  else if(action==='del-weight'&&cat){
+    var wId=el.getAttribute('data-weight');
+    if(confirm('Excluir este registro de peso?')){
+      cat.weights=(cat.weights||[]).filter(function(w){return w.id!==wId;});
+      save(); render(); toast('Registro de peso excluído');
+    }
+  }
   else if(action==='toggle-history'){
     var id=el.getAttribute('data-med');
     openHistory[id]=!openHistory[id];
@@ -799,6 +902,24 @@ function applyMedFields(){
   document.getElementById(id).addEventListener('input',applyMedFields);
 });
 
+document.getElementById('weightForm').addEventListener('submit',function(e){
+  e.preventDefault();
+  if(!weightCtx) return;
+  var raw=document.getElementById('weightKg').value.trim().replace(',','.');
+  var kg=parseFloat(raw);
+  var date=document.getElementById('weightDate').value;
+  if(!date||isNaN(kg)||kg<=0||kg>30){ toast('Peso inválido, use algo como 3,4'); return; }
+  kg=Math.round(kg*1000)/1000;
+  if(!weightCtx.weights) weightCtx.weights=[];
+  var ex=null;
+  for(var i=0;i<weightCtx.weights.length;i++) if(weightCtx.weights[i].date===date) ex=weightCtx.weights[i];
+  if(ex) ex.kg=kg;
+  else weightCtx.weights.push({id:uid(),date:date,kg:kg});
+  save(); render();
+  document.getElementById('weightModal').close();
+  toast('Peso de '+weightCtx.name+' registrado');
+});
+
 /* teclado: Enter/espaco abre o card do gato */
 document.addEventListener('keydown',function(e){
   if((e.key==='Enter'||e.key===' ')&&e.target&&e.target.getAttribute&&e.target.getAttribute('data-action')==='toggle-cat'){
@@ -807,7 +928,7 @@ document.addEventListener('keydown',function(e){
 });
 
 /* salvar pendencias ao fechar e fechar tocando fora */
-['catModal','medModal','doseModal'].forEach(function(id){
+['catModal','medModal','doseModal','weightModal'].forEach(function(id){
   var d=document.getElementById(id);
   d.addEventListener('close',function(){ flushSave(); });
   d.addEventListener('click',function(e){ if(e.target===d) d.close(); });
