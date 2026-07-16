@@ -178,6 +178,9 @@ h1{
 .hrow .amt{font-weight:600}
 .hrow .note{color:var(--muted);font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .hrow .spacer{flex:1}
+.hrow-edit{cursor:pointer;border-radius:8px}
+.hrow-edit:hover{background:var(--wash)}
+.row-pencil{width:13px;height:13px;fill:var(--muted);flex:none;opacity:.7}
 .hrow .del{color:var(--muted);background:none;border:0;padding:4px 9px;border-radius:7px;font-size:1.05rem;line-height:1}
 .hrow .del:hover{color:var(--danger);background:var(--danger-wash)}
 .hempty{color:var(--muted);font-size:.85rem;padding:4px 0}
@@ -425,6 +428,7 @@ var openHistory={};
 var openCats={};
 var openWeights={};
 var editingCat=null, editingMed=null, doseCtx=null, weightCtx=null, pendingPhoto=null;
+var doseEditId=null, weightEditId=null;
 
 function seed(){
   return {cats:[
@@ -649,8 +653,10 @@ function weightCard(cat){
         var dd=Math.round((w.kg-ws[pos-1].kg)*1000);
         dtx='<span class="note">'+(dd===0?'estável':(dd>0?'+':'-')+Math.abs(dd)+' g')+'</span>';
       }
-      return '<div class="hrow"><span class="when">'+fmtDay(w.date)+'</span><span class="amt">'+fmtKg(w.kg)+'</span>'+dtx+
-        '<span class="spacer"></span><button class="del" data-action="del-weight" data-cat="'+cat.id+'" data-weight="'+w.id+'" aria-label="Excluir peso">&times;</button></div>';
+      return '<div class="hrow hrow-edit" data-action="edit-weight" data-cat="'+cat.id+'" data-weight="'+w.id+'" role="button" tabindex="0" aria-label="Corrigir peso">'+
+        '<span class="when">'+fmtDay(w.date)+'</span><span class="amt">'+fmtKg(w.kg)+'</span>'+dtx+
+        '<span class="spacer"></span><svg class="row-pencil" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17.25V21h3.75L17.8 9.94l-3.75-3.75L3 17.25zM20.7 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>'+
+        '<button class="del" data-action="del-weight" data-cat="'+cat.id+'" data-weight="'+w.id+'" aria-label="Excluir peso">&times;</button></div>';
     }).join('');
     hist='<div class="history">'+(rows||'<div class="hempty">Nenhum peso registrado ainda.</div>')+'</div>';
   }
@@ -791,11 +797,12 @@ function medCard(cat,med){
     var rows=med.logs.slice().sort(function(a,b){
       return (b.date+' '+b.time).localeCompare(a.date+' '+a.time);
     }).map(function(l){
-      return '<div class="hrow">'+
+      return '<div class="hrow hrow-edit" data-action="edit-log" data-cat="'+cat.id+'" data-med="'+med.id+'" data-log="'+l.id+'" role="button" tabindex="0" aria-label="Corrigir registro">'+
         '<span class="when">'+fmtDay(l.date)+' às '+esc(l.time)+'</span>'+
         '<span class="amt">'+esc(l.amount)+'</span>'+
         (l.note?'<span class="note">'+esc(l.note)+'</span>':'')+
         '<span class="spacer"></span>'+
+        '<svg class="row-pencil" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17.25V21h3.75L17.8 9.94l-3.75-3.75L3 17.25zM20.7 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>'+
         '<button class="del" data-action="del-log" data-cat="'+cat.id+'" data-med="'+med.id+'" data-log="'+l.id+'" aria-label="Excluir registro">&times;</button>'+
       '</div>';
     }).join('');
@@ -881,22 +888,24 @@ function quickLog(cat,med){
     save(); render(); toast('Registro desfeito');
   });
 }
-function openWeightModal(cat){
+function openWeightModal(cat, entry){
   weightCtx=cat;
-  document.getElementById('weightModalTitle').textContent='Peso de '+cat.name;
+  weightEditId=entry?entry.id:null;
+  document.getElementById('weightModalTitle').textContent = entry?'Corrigir peso de '+cat.name:'Peso de '+cat.name;
   var ws=(cat.weights||[]).slice().sort(function(a,b){return a.date.localeCompare(b.date);});
   var last=ws.length?ws[ws.length-1]:null;
-  document.getElementById('weightKg').value = last?String(last.kg).replace('.',','):'';
-  document.getElementById('weightDate').value = todayStr();
+  document.getElementById('weightKg').value = entry?String(entry.kg).replace('.',','):(last?String(last.kg).replace('.',','):'');
+  document.getElementById('weightDate').value = entry?entry.date:todayStr();
   document.getElementById('weightModal').showModal();
 }
-function openDoseModal(cat,med){
+function openDoseModal(cat,med,log){
   doseCtx={cat:cat,med:med};
-  document.getElementById('doseModalTitle').textContent = med.name+' · '+cat.name;
-  document.getElementById('doseAmount').value = med.dose||'';
-  document.getElementById('doseDate').value = todayStr();
-  document.getElementById('doseTime').value = nowTime();
-  document.getElementById('doseNote').value = '';
+  doseEditId=log?log.id:null;
+  document.getElementById('doseModalTitle').textContent = (log?'Corrigir: ':'')+med.name+' · '+cat.name;
+  document.getElementById('doseAmount').value = log?log.amount:(med.dose||'');
+  document.getElementById('doseDate').value = log?log.date:todayStr();
+  document.getElementById('doseTime').value = log?log.time:nowTime();
+  document.getElementById('doseNote').value = log?(log.note||''):'';
   document.getElementById('doseModal').showModal();
 }
 
@@ -931,6 +940,16 @@ document.addEventListener('click',function(e){
   else if(action==='log-dose'&&med) quickLog(cat,med);
   else if(action==='add-log'&&med) openDoseModal(cat,med);
   else if(action==='log-weight'&&cat) openWeightModal(cat);
+  else if(action==='edit-weight'&&cat){
+    var wid=el.getAttribute('data-weight'), wEntry=null;
+    (cat.weights||[]).forEach(function(w){ if(w.id===wid) wEntry=w; });
+    if(wEntry) openWeightModal(cat,wEntry);
+  }
+  else if(action==='edit-log'&&med){
+    var lgId=el.getAttribute('data-log'), lg=null;
+    med.logs.forEach(function(x){ if(x.id===lgId) lg=x; });
+    if(lg) openDoseModal(cat,med,lg);
+  }
   else if(action==='toggle-weights'&&cat){
     openWeights[cat.id]=!openWeights[cat.id];
     render();
@@ -1002,18 +1021,29 @@ document.getElementById('weightForm').addEventListener('submit',function(e){
   if(!date||isNaN(kg)||kg<=0||kg>30){ toast('Peso inválido, use algo como 3,4'); return; }
   kg=Math.round(kg*1000)/1000;
   if(!weightCtx.weights) weightCtx.weights=[];
-  var ex=null;
-  for(var i=0;i<weightCtx.weights.length;i++) if(weightCtx.weights[i].date===date) ex=weightCtx.weights[i];
-  if(ex) ex.kg=kg;
-  else weightCtx.weights.push({id:uid(),date:date,kg:kg});
+  var wasEdit=!!weightEditId;
+  if(weightEditId){
+    var entry=null;
+    for(var i=0;i<weightCtx.weights.length;i++) if(weightCtx.weights[i].id===weightEditId) entry=weightCtx.weights[i];
+    if(entry){
+      weightCtx.weights=weightCtx.weights.filter(function(w){return w.id===weightEditId||w.date!==date;});
+      entry.date=date; entry.kg=kg;
+    }
+    weightEditId=null;
+  }else{
+    var ex=null;
+    for(var j=0;j<weightCtx.weights.length;j++) if(weightCtx.weights[j].date===date) ex=weightCtx.weights[j];
+    if(ex) ex.kg=kg;
+    else weightCtx.weights.push({id:uid(),date:date,kg:kg});
+  }
   save(); render();
   document.getElementById('weightModal').close();
-  toast('Peso de '+weightCtx.name+' registrado');
+  toast(wasEdit?'Peso corrigido':'Peso de '+weightCtx.name+' registrado');
 });
 
 /* teclado: Enter/espaco abre o card do gato */
 document.addEventListener('keydown',function(e){
-  if((e.key==='Enter'||e.key===' ')&&e.target&&e.target.getAttribute&&e.target.getAttribute('data-action')==='toggle-cat'){
+  if((e.key==='Enter'||e.key===' ')&&e.target&&e.target.getAttribute&&e.target.getAttribute('data-action')&&e.target.getAttribute('role')==='button'){
     e.preventDefault(); e.target.click();
   }
 });
@@ -1084,13 +1114,20 @@ document.getElementById('doseForm').addEventListener('submit',function(e){
   var date=document.getElementById('doseDate').value;
   var time=document.getElementById('doseTime').value;
   if(!amount||!date||!time) return;
-  doseCtx.med.logs.push({
-    id:uid(), date:date, time:time, amount:amount,
-    note:document.getElementById('doseNote').value.trim()
-  });
+  var note=document.getElementById('doseNote').value.trim();
+  var wasEdit=!!doseEditId;
+  if(doseEditId){
+    for(var i=0;i<doseCtx.med.logs.length;i++){
+      var lg=doseCtx.med.logs[i];
+      if(lg.id===doseEditId){ lg.date=date; lg.time=time; lg.amount=amount; lg.note=note; }
+    }
+    doseEditId=null;
+  }else{
+    doseCtx.med.logs.push({id:uid(), date:date, time:time, amount:amount, note:note});
+  }
   save(); render();
   document.getElementById('doseModal').close();
-  toast('Dose registrada, boa melhora '+doseCtx.cat.name+'!');
+  toast(wasEdit?'Registro corrigido':'Dose registrada, boa melhora '+doseCtx.cat.name+'!');
 });
 
 render();
