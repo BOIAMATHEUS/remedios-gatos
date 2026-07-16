@@ -518,6 +518,20 @@ function ensureMedsV3(s){
   s.medsV3=true;
   try{ localStorage.setItem(KEY, JSON.stringify(s)); }catch(e){}
 }
+function ensureMedsV4(s){
+  if(s.medsV4) return;
+  for(var i=0;i<s.cats.length;i++){
+    var c=s.cats[i], n=(c.name||'').toLowerCase();
+    if(c.id==='luna'||n.indexOf('luna')>-1){
+      if(!c.meds) c.meds=[];
+      var jaTem=c.meds.some(function(m){return (m.name||'').toLowerCase().indexOf('marbopet')>-1;});
+      if(!jaTem) c.meds.push({id:'luna-marbopet',name:'Marbopet 27,5',dose:'meio comprimido',perDay:1,totalDays:14,logs:[]});
+      break;
+    }
+  }
+  s.medsV4=true;
+  try{ localStorage.setItem(KEY, JSON.stringify(s)); }catch(e){}
+}
 function load(){
   var s=null;
   try{
@@ -536,6 +550,7 @@ function load(){
   ensureZoroMeds(s);
   ensureZoroMedsV2(s);
   ensureMedsV3(s);
+  ensureMedsV4(s);
   return s;
 }
 function save(){ localStorage.setItem(KEY, JSON.stringify(state)); }
