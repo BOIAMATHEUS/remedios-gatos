@@ -401,20 +401,46 @@ function seed(){
     {id:'zoro',name:'Zoro',theme:'paws',photo:ZORO_PHOTO,meds:[]}
   ]};
 }
+function ensureZoroMeds(s){
+  if(s.zoroMedsV1) return;
+  var zoro=null;
+  for(var i=0;i<s.cats.length;i++){
+    var c=s.cats[i];
+    if(c.id==='zoro'||(c.name&&c.name.toLowerCase().indexOf('zoro')>-1)){ zoro=c; break; }
+  }
+  if(zoro){
+    var has=function(frag){
+      return zoro.meds.some(function(m){return (m.name||'').toLowerCase().indexOf(frag)>-1;});
+    };
+    if(!has('prediderm')) zoro.meds.push({id:'zoro-prediderm',name:'Prediderm 5mg',dose:'meio comprimido',perDay:null,totalDays:null,logs:[]});
+    if(!has('dipirona')) zoro.meds.push({id:'zoro-dipirona',name:'Dipirona',dose:'4 gotas',perDay:1,totalDays:3,logs:[
+      {id:'zd1',date:'2026-07-16',time:'08:10',amount:'4 gotas',note:'horário aproximado'}
+    ]});
+    if(!has('antibi')) zoro.meds.push({id:'zoro-antibiotico',name:'Antibiótico (confirmar nome)',dose:'1/4 comprimido',perDay:2,totalDays:60,logs:[
+      {id:'za1',date:'2026-07-15',time:'20:30',amount:'1/4 comprimido',note:''},
+      {id:'za2',date:'2026-07-16',time:'08:10',amount:'1/4 comprimido',note:''}
+    ]});
+  }
+  s.zoroMedsV1=true;
+  try{ localStorage.setItem(KEY, JSON.stringify(s)); }catch(e){}
+}
 function load(){
+  var s=null;
   try{
-    var s=JSON.parse(localStorage.getItem(KEY));
-    if(s && Array.isArray(s.cats)){
-      s.cats.forEach(function(c){
+    var p=JSON.parse(localStorage.getItem(KEY));
+    if(p && Array.isArray(p.cats)){
+      p.cats.forEach(function(c){
         if(!c.theme){
           if(c.id==='luna') c.theme='night';
           else if(c.id==='zoro') c.theme='paws';
         }
       });
-      return s;
+      s=p;
     }
   }catch(e){}
-  return seed();
+  if(!s) s=seed();
+  ensureZoroMeds(s);
+  return s;
 }
 function save(){ localStorage.setItem(KEY, JSON.stringify(state)); }
 function uid(){ return (window.crypto&&crypto.randomUUID)?crypto.randomUUID():String(Date.now())+Math.random().toString(16).slice(2); }
