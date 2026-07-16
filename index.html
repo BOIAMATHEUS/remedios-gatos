@@ -241,7 +241,11 @@ dialog h2{
   font-size:.88rem;font-weight:600;opacity:0;pointer-events:none;
   transition:opacity .25s ease,transform .25s ease;max-width:88vw;
 }
-#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0);pointer-events:auto}
+.toast-btn{
+  background:none;border:0;color:#F2C879;font-weight:700;font-size:.88rem;
+  text-decoration:underline;margin-left:10px;padding:2px 4px;
+}
 @media (prefers-reduced-motion: reduce){#toast{transition:none}}
 
 /* telas bem estreitas */
@@ -273,7 +277,7 @@ dialog h2{
       <button class="btn-ghost" data-action="import">Restaurar backup</button>
       <input type="file" id="importFile" accept="application/json" hidden>
     </div>
-    <p>As anotações ficam salvas neste navegador. Use sempre o mesmo aparelho, ou salve um backup de vez em quando.</p>
+    <p>Tudo é salvo automaticamente, na hora, neste navegador. Use sempre o mesmo aparelho e salve um backup de vez em quando.</p>
     <p class="love">Feito com <svg viewBox="0 0 24 24" aria-label="amor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg> pra Luna e pro Zoro</p>
   </footer>
 </div>
@@ -296,10 +300,11 @@ dialog h2{
       </div>
       <input type="file" id="catPhotoFile" accept="image/*" hidden>
     </div>
+    <div class="hint" id="catAutosaveHint" hidden>Alterações salvas automaticamente</div>
     <div class="dlg-actions">
       <button type="button" class="btn-danger-link" id="catDeleteBtn" hidden>Excluir gato</button>
-      <button type="button" class="btn-ghost" data-close="catModal">Cancelar</button>
-      <button type="submit" class="btn">Salvar</button>
+      <button type="button" class="btn-ghost" id="catCancelBtn" data-close="catModal">Cancelar</button>
+      <button type="submit" class="btn" id="catSubmitBtn">Salvar</button>
     </div>
   </form>
 </dialog>
@@ -331,10 +336,11 @@ dialog h2{
         <input id="medDays" type="number" min="1" max="365" inputmode="numeric" placeholder="ex: 10">
       </div>
     </div>
+    <div class="hint" id="medAutosaveHint" hidden>Alterações salvas automaticamente</div>
     <div class="dlg-actions">
       <button type="button" class="btn-danger-link" id="medDeleteBtn" hidden>Excluir remédio</button>
-      <button type="button" class="btn-ghost" data-close="medModal">Cancelar</button>
-      <button type="submit" class="btn">Salvar</button>
+      <button type="button" class="btn-ghost" id="medCancelBtn" data-close="medModal">Cancelar</button>
+      <button type="submit" class="btn" id="medSubmitBtn">Salvar</button>
     </div>
   </form>
 </dialog>
@@ -424,11 +430,25 @@ function fmtDay(s){
 function findCat(id){ for(var i=0;i<state.cats.length;i++) if(state.cats[i].id===id) return state.cats[i]; return null; }
 function findMed(cat,id){ for(var i=0;i<cat.meds.length;i++) if(cat.meds[i].id===id) return cat.meds[i]; return null; }
 
-function toast(msg){
+function toast(msg,actionLabel,actionFn){
   var t=document.getElementById('toast');
-  t.textContent=msg; t.classList.add('show');
-  clearTimeout(t._h); t._h=setTimeout(function(){t.classList.remove('show');},2000);
+  t.textContent=msg;
+  if(actionLabel){
+    var b=document.createElement('button');
+    b.className='toast-btn'; b.type='button'; b.textContent=actionLabel;
+    b.addEventListener('click',function(){ t.classList.remove('show'); actionFn(); });
+    t.appendChild(b);
+  }
+  t.classList.add('show');
+  clearTimeout(t._h);
+  t._h=setTimeout(function(){t.classList.remove('show');}, actionLabel?6000:2000);
 }
+var saveTimer=null;
+function autosave(){
+  clearTimeout(saveTimer);
+  saveTimer=setTimeout(function(){ save(); render(); },250);
+}
+function flushSave(){ clearTimeout(saveTimer); save(); render(); }
 
 /* ---------- render ---------- */
 function render(){
@@ -538,7 +558,8 @@ function medCard(cat,med){
         '<button class="del" data-action="del-log" data-cat="'+cat.id+'" data-med="'+med.id+'" data-log="'+l.id+'" aria-label="Excluir registro">&times;</button>'+
       '</div>';
     }).join('');
-    hist='<div class="history">'+(rows||'<div class="hempty">Nenhuma dose registrada ainda.</div>')+'</div>';
+    hist='<div class="history">'+(rows||'<div class="hempty">Nenhuma dose registrada ainda.</div>')+
+      '<div style="margin-top:8px"><button class="btn-ghost" data-action="add-log" data-cat="'+cat.id+'" data-med="'+med.id+'">Registrar com outro horário</button></div></div>';
   }
 
   var doseInfo = med.dose ? ' <span class="med-dose">'+esc(med.dose)+(med.perDay?', '+med.perDay+'x ao dia':'')+'</span>'
@@ -589,6 +610,9 @@ function openCatModal(cat){
   document.getElementById('catModalTitle').textContent = cat?'Editar gato':'Adicionar gato';
   document.getElementById('catName').value = cat?cat.name:'';
   document.getElementById('catDeleteBtn').hidden = !cat;
+  document.getElementById('catAutosaveHint').hidden = !cat;
+  document.getElementById('catCancelBtn').hidden = !!cat;
+  document.getElementById('catSubmitBtn').textContent = cat?'Pronto':'Salvar';
   setPhotoPreview();
   document.getElementById('catModal').showModal();
 }
@@ -600,7 +624,20 @@ function openMedModal(cat,med){
   document.getElementById('medPerDay').value = med&&med.perDay?med.perDay:'';
   document.getElementById('medDays').value = med&&med.totalDays?med.totalDays:'';
   document.getElementById('medDeleteBtn').hidden = !med;
+  document.getElementById('medAutosaveHint').hidden = !med;
+  document.getElementById('medCancelBtn').hidden = !!med;
+  document.getElementById('medSubmitBtn').textContent = med?'Pronto':'Salvar';
   document.getElementById('medModal').showModal();
+}
+function quickLog(cat,med){
+  if(!med.dose){ openDoseModal(cat,med); return; }
+  var l={id:uid(),date:todayStr(),time:nowTime(),amount:med.dose,note:''};
+  med.logs.push(l);
+  save(); render();
+  toast('Dose de '+cat.name+' registrada','Desfazer',function(){
+    med.logs=med.logs.filter(function(x){return x.id!==l.id;});
+    save(); render(); toast('Registro desfeito');
+  });
 }
 function openDoseModal(cat,med){
   doseCtx={cat:cat,med:med};
@@ -617,7 +654,9 @@ document.addEventListener('click',function(e){
   var chip=e.target.closest('.dchip');
   if(chip){
     var target=chip.closest('.dchips').getAttribute('data-target');
-    document.getElementById(target).value=chip.textContent;
+    var inp=document.getElementById(target);
+    inp.value=chip.textContent;
+    inp.dispatchEvent(new Event('input',{bubbles:true}));
     return;
   }
   var closer=e.target.closest('[data-close]');
@@ -633,7 +672,8 @@ document.addEventListener('click',function(e){
   else if(action==='edit-cat'&&cat) openCatModal(cat);
   else if(action==='add-med'&&cat) openMedModal(cat,null);
   else if(action==='edit-med'&&med) openMedModal(cat,med);
-  else if(action==='log-dose'&&med) openDoseModal(cat,med);
+  else if(action==='log-dose'&&med) quickLog(cat,med);
+  else if(action==='add-log'&&med) openDoseModal(cat,med);
   else if(action==='toggle-history'){
     var id=el.getAttribute('data-med');
     openHistory[id]=!openHistory[id];
@@ -658,9 +698,40 @@ document.getElementById('catPhotoPreview').addEventListener('click',function(){
 });
 document.getElementById('catPhotoFile').addEventListener('change',function(){
   if(this.files&&this.files[0]){
-    fileToPhoto(this.files[0],function(dataUri){ pendingPhoto=dataUri; setPhotoPreview(); });
+    fileToPhoto(this.files[0],function(dataUri){
+      pendingPhoto=dataUri; setPhotoPreview();
+      if(editingCat){ editingCat.photo=pendingPhoto; save(); render(); }
+    });
   }
   this.value='';
+});
+
+/* autosave ao vivo enquanto edita */
+document.getElementById('catName').addEventListener('input',function(){
+  if(!editingCat) return;
+  var v=this.value.trim();
+  if(v) editingCat.name=v;
+  autosave();
+});
+function applyMedFields(){
+  if(!editingMed||!editingMed.med) return;
+  var m=editingMed.med;
+  var n=document.getElementById('medName').value.trim();
+  if(n) m.name=n;
+  m.dose=document.getElementById('medDose').value.trim();
+  m.perDay=parseInt(document.getElementById('medPerDay').value,10)||null;
+  m.totalDays=parseInt(document.getElementById('medDays').value,10)||null;
+  autosave();
+}
+['medName','medDose','medPerDay','medDays'].forEach(function(id){
+  document.getElementById(id).addEventListener('input',applyMedFields);
+});
+
+/* salvar pendencias ao fechar e fechar tocando fora */
+['catModal','medModal','doseModal'].forEach(function(id){
+  var d=document.getElementById(id);
+  d.addEventListener('close',function(){ flushSave(); });
+  d.addEventListener('click',function(e){ if(e.target===d) d.close(); });
 });
 
 document.getElementById('catForm').addEventListener('submit',function(e){
