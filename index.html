@@ -276,6 +276,15 @@ dialog h2{
 
   <main id="app"></main>
 
+  <section class="cat" aria-label="Retornos no veterinário">
+    <div class="med-head"><h3 class="med-name">Retornos com o Dr. Fernando</h3><span class="med-dose">Hospital Estimma</span></div>
+    <div class="history" style="border-top:0;padding-top:8px">
+      <div class="hrow"><span class="when">Sex, 17 de jul às 20h</span><span class="amt">Luna</span></div>
+      <div class="hrow"><span class="when">Qua, 22 de jul</span><span class="amt">Zoro</span></div>
+      <div class="hrow"><span class="when">Qua, 29 de jul</span><span class="amt">Zoro</span><span class="note">2ª aplicação do Convenia</span></div>
+    </div>
+  </section>
+
   <footer>
     <p class="love">Feito com <svg viewBox="0 0 24 24" aria-label="amor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg> pra Luna e pro Zoro</p>
   </footer>
@@ -468,6 +477,47 @@ function ensureZoroMedsV2(s){
   s.zoroMedsV2=true;
   try{ localStorage.setItem(KEY, JSON.stringify(s)); }catch(e){}
 }
+function ensureMedsV3(s){
+  if(s.medsV3) return;
+  var i,luna=null,zoro=null;
+  for(i=0;i<s.cats.length;i++){
+    var c=s.cats[i], n=(c.name||'').toLowerCase();
+    if(c.id==='luna'||n.indexOf('luna')>-1) luna=c;
+    if(c.id==='zoro'||n.indexOf('zoro')>-1) zoro=c;
+  }
+  if(zoro&&zoro.meds){
+    for(i=0;i<zoro.meds.length;i++){
+      var m=zoro.meds[i], nm=(m.name||'').toLowerCase();
+      if(nm.indexOf('antibi')>-1||nm.indexOf('confirmar')>-1){
+        m.name='Agemoxi 250mg';
+        for(var j=0;j<m.logs.length;j++){
+          if(m.logs[j].date==='2026-07-15'&&m.logs[j].time==='20:30') m.logs[j].time='20:55';
+        }
+      }
+      if(nm.indexOf('prediderm')>-1&&m.totalDays===5) m.totalDays=4;
+    }
+  }
+  if(luna){
+    if(!luna.meds) luna.meds=[];
+    var has=function(frag){
+      return luna.meds.some(function(m){return (m.name||'').toLowerCase().indexOf(frag)>-1;});
+    };
+    if(!has('mirtz')) luna.meds.push({id:'luna-mirtz',name:'Mirtz',dose:'1 comprimido',perDay:1,everyDays:2,totalDays:14,logs:[]});
+    if(!has('cerenia')) luna.meds.push({id:'luna-cerenia',name:'Cerenia 16mg',dose:'meio comprimido',perDay:1,totalDays:6,logs:[
+      {id:'lc1',date:'2026-07-15',time:'20:56',amount:'meio comprimido',note:''}
+    ]});
+    if(!has('sanus')) luna.meds.push({id:'luna-sanus',name:'Sanus 100mg',dose:'1 cápsula',perDay:1,totalDays:30,logs:[
+      {id:'ls1',date:'2026-07-15',time:'20:56',amount:'1 cápsula',note:''}
+    ]});
+    if(!has('glutamax')) luna.meds.push({id:'luna-glutamax',name:'Glutamax',dose:'6 gotas',perDay:2,totalDays:30,logs:[]});
+    if(!has('ursacol')) luna.meds.push({id:'luna-ursacol',name:'Ursacol 50mg',dose:'1 comprimido',perDay:1,totalDays:30,logs:[
+      {id:'lu1',date:'2026-07-15',time:'20:56',amount:'1 comprimido',note:''}
+    ]});
+    if(!luna.weights||!luna.weights.length) luna.weights=[{id:'lw1',date:'2026-07-15',kg:3.47}];
+  }
+  s.medsV3=true;
+  try{ localStorage.setItem(KEY, JSON.stringify(s)); }catch(e){}
+}
 function load(){
   var s=null;
   try{
@@ -485,6 +535,7 @@ function load(){
   if(!s) s=seed();
   ensureZoroMeds(s);
   ensureZoroMedsV2(s);
+  ensureMedsV3(s);
   return s;
 }
 function save(){ localStorage.setItem(KEY, JSON.stringify(state)); }
@@ -596,13 +647,26 @@ function weightCard(cat){
       '<button class="btn-ghost" data-action="toggle-weights" data-cat="'+cat.id+'">'+(openWeights[cat.id]?'Fechar':'Histórico')+'</button>'+
     '</div>'+hist+'</div>';
 }
+function isDueToday(med){
+  var ev=med.everyDays||1;
+  if(ev<2) return true;
+  if(!med.logs.length) return true;
+  var lastD=null;
+  med.logs.forEach(function(l){ if(!lastD||l.date>lastD) lastD=l.date; });
+  return Math.round((parseDate(todayStr())-parseDate(lastD))/86400000)>=ev;
+}
 function catStatusChip(cat){
   if(!cat.meds.length) return '';
   var t=todayStr(), pend=0, given=0, hasPerDay=false;
   cat.meds.forEach(function(m){
     var c=m.logs.filter(function(l){return l.date===t;}).length;
     given+=c;
-    if(m.perDay){ hasPerDay=true; if(c<m.perDay) pend+=(m.perDay-c); }
+    if(m.perDay){
+      hasPerDay=true;
+      if((m.everyDays||1)>1){
+        if(c===0&&isDueToday(m)) pend+=1;
+      }else if(c<m.perDay) pend+=(m.perDay-c);
+    }
   });
   if(pend>0) return '<span class="chip warn">'+(pend===1?'Falta 1 dose hoje':'Faltam '+pend+' doses hoje')+'</span>';
   if(hasPerDay) return '<span class="chip ok">Tudo dado hoje</span>';
@@ -647,17 +711,28 @@ function pawRow(done,total){
 function medCard(cat,med){
   var t=todayStr();
   var todayCount=med.logs.filter(function(l){return l.date===t;}).length;
+  var ev=med.everyDays||1;
   var daysDone;
   if(med.perDay){
-    daysDone=Math.floor(med.logs.length/med.perDay);
+    daysDone=Math.floor(med.logs.length/med.perDay)*ev;
   }else{
     var daysSet={}; med.logs.forEach(function(l){daysSet[l.date]=1;});
     daysDone=Object.keys(daysSet).length;
   }
+  if(med.totalDays) daysDone=Math.min(daysDone,med.totalDays);
 
   /* today chip */
   var chip;
-  if(med.perDay){
+  if(ev>1&&med.perDay){
+    if(todayCount>0) chip='<span class="chip ok">Dose de hoje dada</span>';
+    else if(isDueToday(med)) chip='<span class="chip warn">Hoje é dia: dose pendente</span>';
+    else{
+      var lastD=null;
+      med.logs.forEach(function(l){ if(!lastD||l.date>lastD) lastD=l.date; });
+      var rem=ev-Math.round((parseDate(t)-parseDate(lastD))/86400000);
+      chip='<span class="chip ok">Hoje não precisa, próxima '+(rem<=1?'amanhã':'em '+rem+' dias')+'</span>';
+    }
+  }else if(med.perDay){
     chip = todayCount>=med.perDay
       ? '<span class="chip ok">Hoje: '+todayCount+' de '+med.perDay+', tudo dado</span>'
       : '<span class="chip warn">Hoje: '+todayCount+' de '+med.perDay+' doses</span>';
@@ -713,8 +788,9 @@ function medCard(cat,med){
       '<div style="margin-top:8px"><button class="btn-ghost" data-action="add-log" data-cat="'+cat.id+'" data-med="'+med.id+'">Registrar com outro horário</button></div></div>';
   }
 
-  var doseInfo = med.dose ? ' <span class="med-dose">'+esc(med.dose)+(med.perDay?', '+med.perDay+'x ao dia':'')+'</span>'
-               : (med.perDay?' <span class="med-dose">'+med.perDay+'x ao dia</span>':'');
+  var freqTxt = ev>1 ? 'a cada '+ev+' dias' : (med.perDay ? med.perDay+'x ao dia' : '');
+  var doseInfo = med.dose ? ' <span class="med-dose">'+esc(med.dose)+(freqTxt?', '+freqTxt:'')+'</span>'
+               : (freqTxt?' <span class="med-dose">'+freqTxt+'</span>':'');
 
   return '<div class="med">'+
     '<div class="med-head"><h3 class="med-name">'+esc(med.name)+'</h3>'+doseInfo+
