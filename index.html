@@ -275,12 +275,6 @@ dialog h2{
   <main id="app"></main>
 
   <footer>
-    <div class="row">
-      <button class="btn-ghost" data-action="export">Salvar backup</button>
-      <button class="btn-ghost" data-action="import">Restaurar backup</button>
-      <input type="file" id="importFile" accept="application/json" hidden>
-    </div>
-    <p>Tudo é salvo automaticamente, na hora, neste navegador. Use sempre o mesmo aparelho e salve um backup de vez em quando.</p>
     <p class="love">Feito com <svg viewBox="0 0 24 24" aria-label="amor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg> pra Luna e pro Zoro</p>
   </footer>
 </div>
@@ -766,8 +760,6 @@ document.addEventListener('click',function(e){
       save(); render(); toast('Registro excluído');
     }
   }
-  else if(action==='export') exportData();
-  else if(action==='import') document.getElementById('importFile').click();
 });
 
 document.getElementById('catPhotoBtn').addEventListener('click',function(){
@@ -887,31 +879,6 @@ document.getElementById('doseForm').addEventListener('submit',function(e){
   save(); render();
   document.getElementById('doseModal').close();
   toast('Dose registrada, boa melhora '+doseCtx.cat.name+'!');
-});
-
-/* ---------- backup ---------- */
-function exportData(){
-  var blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'});
-  var a=document.createElement('a');
-  a.href=URL.createObjectURL(blob);
-  a.download='remedinhos-'+todayStr()+'.json';
-  a.click();
-  URL.revokeObjectURL(a.href);
-  toast('Backup salvo');
-}
-document.getElementById('importFile').addEventListener('change',function(){
-  var file=this.files&&this.files[0];
-  this.value='';
-  if(!file) return;
-  var reader=new FileReader();
-  reader.onload=function(){
-    try{
-      var data=JSON.parse(reader.result);
-      if(!data||!Array.isArray(data.cats)) throw new Error('formato');
-      state=data; save(); render(); toast('Backup restaurado');
-    }catch(err){ toast('Esse arquivo não é um backup válido'); }
-  };
-  reader.readAsText(file);
 });
 
 render();
