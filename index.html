@@ -206,6 +206,7 @@ footer{
 footer .row{display:flex;justify-content:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}
 footer p{margin:0;text-wrap:balance}
 footer .love{margin-top:10px;font-weight:600}
+footer .sync{font-size:.75rem;margin:0 0 8px;font-variant-numeric:tabular-nums}
 footer .love svg{width:11px;height:11px;fill:var(--accent);vertical-align:-1px}
 
 /* dialogs */
@@ -293,6 +294,7 @@ dialog h2{
   </section>
 
   <footer>
+    <p class="sync" id="syncInfo"></p>
     <p class="love">Feito com <svg viewBox="0 0 24 24" aria-label="amor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg> pra Luna e pro Zoro</p>
   </footer>
 </div>
@@ -576,7 +578,11 @@ function load(){
   ensureMedsV5(s);
   return s;
 }
-function save(){ localStorage.setItem(KEY, JSON.stringify(state)); }
+function save(){
+  state.stamp=new Date().toISOString();
+  localStorage.setItem(KEY, JSON.stringify(state));
+  schedulePush();
+}
 function uid(){ return (window.crypto&&crypto.randomUUID)?crypto.randomUUID():String(Date.now())+Math.random().toString(16).slice(2); }
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
 function pad(n){ return String(n).padStart(2,'0'); }
@@ -610,6 +616,98 @@ function autosave(){
   saveTimer=setTimeout(function(){ save(); render(); },250);
 }
 function flushSave(){ clearTimeout(saveTimer); save(); render(); }
+
+/* ---------- sincronizacao (Supabase) ---------- */
+var SUPA_URL='https://vasyellenvaxolfnaqda.supabase.co';
+var SUPA_KEY='sb_publishable_6F1MkvAlePe6cVG8KKwlqg_mN7JGyaZ';
+var SYNC=SUPA_URL.indexOf('.supabase.co')>-1;
+var syncDirty=false, pushTimer=null;
+
+function supaHeaders(){
+  return {'apikey':SUPA_KEY,'Authorization':'Bearer '+SUPA_KEY,'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'};
+}
+function setSyncInfo(msg){
+  var el=document.getElementById('syncInfo');
+  if(el) el.textContent=msg;
+}
+function schedulePush(){
+  if(!SYNC) return;
+  syncDirty=true;
+  clearTimeout(pushTimer);
+  pushTimer=setTimeout(pushRemote,800);
+}
+function pushRemote(){
+  if(!SYNC||!syncDirty) return;
+  fetch(SUPA_URL+'/rest/v1/estado',{
+    method:'POST',
+    headers:supaHeaders(),
+    body:JSON.stringify([{id:1,dados:state,atualizado_em:new Date().toISOString()}])
+  }).then(function(r){
+    if(r.ok){ syncDirty=false; setSyncInfo('Sincronizado às '+nowTime()); }
+    else setSyncInfo('Sem conexão, salvo neste aparelho');
+  }).catch(function(){ setSyncInfo('Sem conexão, salvo neste aparelho'); });
+}
+function unionById(newer,older,tumbas){
+  var out=[],seen={};
+  (newer||[]).concat(older||[]).forEach(function(x){
+    if(!x||!x.id) return;
+    if(seen[x.id]||tumbas[x.id]) return;
+    seen[x.id]=1; out.push(x);
+  });
+  return out;
+}
+function mergeStates(newer,older){
+  var t={};
+  Object.keys(newer.tumbas||{}).forEach(function(k){t[k]=1;});
+  Object.keys(older.tumbas||{}).forEach(function(k){t[k]=1;});
+  var m=JSON.parse(JSON.stringify(newer));
+  var o=JSON.parse(JSON.stringify(older));
+  m.tumbas=t;
+  var oldCats={};
+  (o.cats||[]).forEach(function(c){oldCats[c.id]=c;});
+  m.cats=unionById(m.cats,o.cats,t);
+  m.cats.forEach(function(c){
+    var oc=oldCats[c.id];
+    var oldMeds={};
+    ((oc&&oc.meds)||[]).forEach(function(mm){oldMeds[mm.id]=mm;});
+    c.meds=unionById(c.meds,(oc&&oc.meds)||[],t);
+    c.meds.forEach(function(mm){
+      var om=oldMeds[mm.id];
+      mm.logs=unionById(mm.logs,om?om.logs:[],t);
+    });
+    c.weights=unionById(c.weights,(oc&&oc.weights)||[],t);
+  });
+  return m;
+}
+function pullRemote(){
+  if(!SYNC) return;
+  fetch(SUPA_URL+'/rest/v1/estado?id=eq.1&select=dados',{headers:supaHeaders()})
+    .then(function(r){ if(!r.ok) throw 0; return r.json(); })
+    .then(function(rows){
+      var remote=rows.length?rows[0].dados:null;
+      if(!remote||!remote.cats||!remote.cats.length){
+        syncDirty=true; pushRemote(); return;
+      }
+      var localJson=JSON.stringify(state);
+      var remoteJson=JSON.stringify(remote);
+      if(remoteJson===localJson){ setSyncInfo('Sincronizado às '+nowTime()); return; }
+      var merged=(remote.stamp||'')>(state.stamp||'') ? mergeStates(remote,state) : mergeStates(state,remote);
+      var mergedJson=JSON.stringify(merged);
+      if(document.querySelector('dialog[open]')) return;
+      if(mergedJson!==localJson){
+        state=merged;
+        localStorage.setItem(KEY,mergedJson);
+        render();
+      }
+      if(mergedJson!==remoteJson){ syncDirty=true; pushRemote(); }
+      setSyncInfo('Sincronizado às '+nowTime());
+    })
+    .catch(function(){ setSyncInfo('Sem conexão, salvo neste aparelho'); });
+}
+if(SYNC){
+  pullRemote();
+  setInterval(pullRemote,5000);
+}
 
 /* ---------- render ---------- */
 function render(){
@@ -979,6 +1077,7 @@ document.addEventListener('click',function(e){
   else if(action==='del-weight'&&cat){
     var wId=el.getAttribute('data-weight');
     if(confirm('Excluir este registro de peso?')){
+      (state.tumbas||(state.tumbas={}))[wId]=1;
       cat.weights=(cat.weights||[]).filter(function(w){return w.id!==wId;});
       save(); render(); toast('Registro de peso excluído');
     }
@@ -991,6 +1090,7 @@ document.addEventListener('click',function(e){
   else if(action==='del-log'&&med){
     var logId=el.getAttribute('data-log');
     if(confirm('Excluir este registro de dose?')){
+      (state.tumbas||(state.tumbas={}))[logId]=1;
       med.logs=med.logs.filter(function(l){return l.id!==logId;});
       save(); render(); toast('Registro excluído');
     }
@@ -1093,6 +1193,7 @@ document.getElementById('catDeleteBtn').addEventListener('click',function(){
   if(!editingCat) return;
   if(confirm('Excluir '+editingCat.name+' e todo o histórico de remédios?')){
     var id=editingCat.id;
+    (state.tumbas||(state.tumbas={}))[id]=1;
     state.cats=state.cats.filter(function(c){return c.id!==id;});
     save(); render();
     document.getElementById('catModal').close();
@@ -1122,6 +1223,7 @@ document.getElementById('medDeleteBtn').addEventListener('click',function(){
   if(!editingMed||!editingMed.med) return;
   if(confirm('Excluir '+editingMed.med.name+' e todos os registros?')){
     var medId=editingMed.med.id;
+    (state.tumbas||(state.tumbas={}))[medId]=1;
     editingMed.cat.meds=editingMed.cat.meds.filter(function(m){return m.id!==medId;});
     save(); render();
     document.getElementById('medModal').close();
@@ -1158,6 +1260,7 @@ document.addEventListener('visibilitychange',function(){
   if(!document.hidden){
     if(!document.querySelector('dialog[open]')) state=load();
     render();
+    pullRemote();
   }
 });
 })();
